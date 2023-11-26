@@ -7,7 +7,7 @@ fn main() {
 #include "winres.h"
 101 PNG "dvd.png""#,
         );
-        res.write_resource_file("resource.rc").unwrap();
+        // res.write_resource_file("resource.rc").unwrap();
         res.compile().unwrap();
     }
 }
