@@ -16,7 +16,7 @@ use std::{
     mem::MaybeUninit,
     ops::Neg,
     path::PathBuf,
-    ptr,
+    ptr::{self, NonNull},
     sync::atomic::{AtomicBool, Ordering},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -363,15 +363,17 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
             major: 0,
             minor: 4,
             build: 0,
-            revision: 2,
+            revision: 3,
         },
         author: b"belst\0".as_ptr() as *const c_char,
         description: b"Bouncy\0".as_ptr() as *const c_char,
         load,
-        unload: Some(unload),
+        unload: Some(unsafe { NonNull::new_unchecked(unload as _) }),
         flags: EAddonFlags::None,
         provider: nexus_rs::raw_structs::EUpdateProvider::GitHub,
-        update_link: Some(s!("https://github.com/belst/nexus-dvd").0 as _),
+        update_link: Some(unsafe {
+            NonNull::new_unchecked(s!("https://github.com/belst/nexus-dvd").0 as _)
+        }),
     };
 
     &AD as *const _ as _
