@@ -119,7 +119,7 @@ dependencies = [
 [[package]]
 name = "nexus-rs"
 version = "0.1.0"
-source = "git+https://github.com/belst/raidcore_bindings-rs#d5515b4b059e18f393750e9510583799765d9ea4"
+source = "git+https://github.com/belst/raidcore_bindings-rs?rev=423e14136e2adec56ba392e2db4e0e61f8507de5#423e14136e2adec56ba392e2db4e0e61f8507de5"
 dependencies = [
  "arcdps-imgui",
  "bitflags 2.4.1",

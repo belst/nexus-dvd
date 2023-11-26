@@ -363,7 +363,7 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
             major: 0,
             minor: 4,
             build: 0,
-            revision: 3,
+            revision: 4,
         },
         author: b"belst\0".as_ptr() as *const c_char,
         description: b"Bouncy\0".as_ptr() as *const c_char,
