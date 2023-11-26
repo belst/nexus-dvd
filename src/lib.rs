@@ -361,7 +361,7 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
         name: b"DVD\0".as_ptr() as *const c_char,
         version: AddonVersion {
             major: 0,
-            minor: 3,
+            minor: 4,
             build: 0,
             revision: 0,
         },
@@ -370,8 +370,8 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
         load,
         unload: Some(unload),
         flags: EAddonFlags::None,
-        provider: nexus_rs::raw_structs::EUpdateProvider::None,
-        update_link: None,
+        provider: nexus_rs::raw_structs::EUpdateProvider::GitHub,
+        update_link: Some(s!("https://github.com/belst/nexus-dvd").0 as _),
     };
 
     &AD as *const _ as _
