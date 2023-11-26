@@ -30,6 +30,7 @@ features = [
 
 [dependencies.nexus-rs]
 git = "https://github.com/belst/raidcore_bindings-rs"
+rev = "423e14136e2adec56ba392e2db4e0e61f8507de5"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1.11"
