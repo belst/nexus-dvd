@@ -136,6 +136,7 @@ unsafe extern "C" fn unload() {
 static mut SPEED_VAL: f32 = 2f32;
 static mut DVD_COUNT: u32 = 1;
 static mut USE_FILE_IMAGE: bool = false;
+static mut SHOW_DURING_GAMEPLAY: bool = false;
 
 unsafe fn config_path() -> PathBuf {
     let api = API.assume_init();
@@ -160,6 +161,9 @@ unsafe fn load_settings() {
     if let Some(Ok(file_image)) = it.next() {
         USE_FILE_IMAGE = file_image.parse().unwrap_or(USE_FILE_IMAGE);
     }
+    if let Some(Ok(file_image)) = it.next() {
+        SHOW_DURING_GAMEPLAY = file_image.parse().unwrap_or(SHOW_DURING_GAMEPLAY);
+    }
 }
 unsafe fn store_settings() {
     let path = config_path();
@@ -168,7 +172,7 @@ unsafe fn store_settings() {
     let Ok(mut file) = File::create(config_path()) else {
         return;
     };
-    let mut config = format!("{SPEED_VAL}\n{DVD_COUNT}\n{USE_FILE_IMAGE}");
+    let mut config = format!("{SPEED_VAL}\n{DVD_COUNT}\n{USE_FILE_IMAGE}\n{SHOW_DURING_GAMEPLAY}");
     file.write_all(config.as_bytes_mut()).ok();
 }
 
@@ -183,6 +187,10 @@ pub unsafe extern "C" fn render_options() {
             load_file();
         }
     }
+    ui.checkbox(
+        "Show small version during gameplay",
+        &mut SHOW_DURING_GAMEPLAY,
+    );
 }
 
 #[derive(Debug)]
@@ -215,26 +223,9 @@ unsafe fn calculate_pos() {
         if NEXUS_DATA.is_none() {
             continue;
         }
-        if NEXUS_DATA.unwrap().is_gameplay {
+        if !SHOW_DURING_GAMEPLAY && NEXUS_DATA.unwrap().is_gameplay {
             continue;
         }
-        while STATE.len() < DVD_COUNT as usize {
-            STATE.push(DvdState {
-                x: rand::thread_rng()
-                    .gen_range(0..(NEXUS_DATA.unwrap().width - DVD_ICON.unwrap().width))
-                    as _,
-                y: rand::thread_rng()
-                    .gen_range(0..(NEXUS_DATA.unwrap().height - DVD_ICON.unwrap().height))
-                    as _,
-                direction: [[-1, -1], [-1, 1], [1, -1], [1, 1]]
-                    .choose(&mut rand::thread_rng())
-                    .unwrap()
-                    .clone(),
-                tint: randomize_color(),
-            })
-        }
-        STATE.truncate(DVD_COUNT as usize);
-
         let nexus_data = NEXUS_DATA.unwrap();
         let dvd_icon = if USE_FILE_IMAGE {
             if let Some(icon) = DVD_ICON_FILE {
@@ -246,11 +237,33 @@ unsafe fn calculate_pos() {
         } else {
             DVD_ICON.unwrap()
         };
+        let icon_width = if nexus_data.is_gameplay && SHOW_DURING_GAMEPLAY {
+            dvd_icon.width / 5
+        } else {
+            dvd_icon.width
+        };
+        let icon_height = if nexus_data.is_gameplay && SHOW_DURING_GAMEPLAY {
+            dvd_icon.height / 5
+        } else {
+            dvd_icon.height
+        };
+        while STATE.len() < DVD_COUNT as usize {
+            STATE.push(DvdState {
+                x: rand::thread_rng().gen_range(0..(nexus_data.width - icon_width)) as _,
+                y: rand::thread_rng().gen_range(0..(nexus_data.height - icon_height)) as _,
+                direction: [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+                    .choose(&mut rand::thread_rng())
+                    .unwrap()
+                    .clone(),
+                tint: randomize_color(),
+            })
+        }
+        STATE.truncate(DVD_COUNT as usize);
 
         for state in STATE.iter_mut() {
             let x_speed = colission(
                 &mut state.x,
-                (nexus_data.width - dvd_icon.width) as f32,
+                (nexus_data.width - icon_width) as f32,
                 delta,
                 &mut state.direction[0],
                 &mut state.tint,
@@ -258,7 +271,7 @@ unsafe fn calculate_pos() {
             );
             let y_speed = colission(
                 &mut state.y,
-                (nexus_data.height - dvd_icon.height) as f32,
+                (nexus_data.height - icon_height) as f32,
                 delta,
                 &mut state.direction[1],
                 &mut state.tint,
@@ -266,7 +279,7 @@ unsafe fn calculate_pos() {
             );
             let x_speed = colission(
                 &mut state.x,
-                (nexus_data.width - dvd_icon.width) as f32,
+                (nexus_data.width - icon_width) as f32,
                 delta,
                 &mut state.direction[0],
                 &mut state.tint,
@@ -274,7 +287,7 @@ unsafe fn calculate_pos() {
             );
             let y_speed = colission(
                 &mut state.y,
-                (nexus_data.height - dvd_icon.height) as f32,
+                (nexus_data.height - icon_height) as f32,
                 delta,
                 &mut state.direction[1],
                 &mut state.tint,
@@ -289,7 +302,7 @@ unsafe fn calculate_pos() {
 
 pub unsafe extern "C" fn render() {
     if let Some(nd) = NEXUS_DATA {
-        if nd.is_gameplay {
+        if nd.is_gameplay && !SHOW_DURING_GAMEPLAY {
             return;
         }
     } else {
@@ -338,6 +351,18 @@ fn render_dvd(index: usize, dvd: &DvdState) {
             DVD_ICON.unwrap()
         }
     };
+    let nexus_data = unsafe { NEXUS_DATA.unwrap() };
+
+    let icon_width = if nexus_data.is_gameplay && unsafe { SHOW_DURING_GAMEPLAY } {
+        dvd_icon.width / 5
+    } else {
+        dvd_icon.width
+    };
+    let icon_height = if nexus_data.is_gameplay && unsafe { SHOW_DURING_GAMEPLAY } {
+        dvd_icon.height / 5
+    } else {
+        dvd_icon.height
+    };
     if let Some(w) = Window::new(format!("DVD#{index}"))
         .no_decoration()
         .always_auto_resize(true)
@@ -350,7 +375,7 @@ fn render_dvd(index: usize, dvd: &DvdState) {
     {
         Image::new(
             (dvd_icon.resource).into(),
-            [dvd_icon.width as _, dvd_icon.height as _],
+            [icon_width as _, icon_height as _],
         )
         .tint_col(dvd.tint)
         .build(ui);
@@ -366,7 +391,7 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
         name: b"DVD\0".as_ptr() as *const c_char,
         version: AddonVersion {
             major: 0,
-            minor: 5,
+            minor: 6,
             build: 0,
             revision: 0,
         },
