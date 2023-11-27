@@ -208,10 +208,8 @@ unsafe fn calculate_pos() {
         }
         let delta = LAST_TS.elapsed();
         *LAST_TS = Instant::now();
-        if !USE_FILE_IMAGE && DVD_ICON.is_none() {
-            continue;
-        }
-        if USE_FILE_IMAGE && DVD_ICON_FILE.is_none() {
+
+        if DVD_ICON.is_none() {
             continue;
         }
         if NEXUS_DATA.is_none() {
@@ -239,7 +237,12 @@ unsafe fn calculate_pos() {
 
         let nexus_data = NEXUS_DATA.unwrap();
         let dvd_icon = if USE_FILE_IMAGE {
-            DVD_ICON_FILE.unwrap()
+            if let Some(icon) = DVD_ICON_FILE {
+                icon
+            } else {
+                // placeholder
+                DVD_ICON.unwrap()
+            }
         } else {
             DVD_ICON.unwrap()
         };
@@ -289,6 +292,8 @@ pub unsafe extern "C" fn render() {
         if nd.is_gameplay {
             return;
         }
+    } else {
+        return;
     }
     for (i, dvd) in STATE.iter().enumerate() {
         render_dvd(i as usize, dvd);
@@ -327,7 +332,7 @@ fn colission(
 fn render_dvd(index: usize, dvd: &DvdState) {
     let ui = unsafe { UI.assume_init_ref() };
     let dvd_icon = unsafe {
-        if USE_FILE_IMAGE {
+        if USE_FILE_IMAGE && DVD_ICON_FILE.is_some() {
             DVD_ICON_FILE.unwrap()
         } else {
             DVD_ICON.unwrap()
@@ -361,9 +366,9 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
         name: b"DVD\0".as_ptr() as *const c_char,
         version: AddonVersion {
             major: 0,
-            minor: 4,
+            minor: 5,
             build: 0,
-            revision: 4,
+            revision: 0,
         },
         author: b"belst\0".as_ptr() as *const c_char,
         description: b"Bouncy\0".as_ptr() as *const c_char,
