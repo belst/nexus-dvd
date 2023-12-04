@@ -3,6 +3,7 @@ use arcdps_imgui::{
     sys::{igSetAllocatorFunctions, igSetCurrentContext},
     Context, Image, Slider, Ui, Window,
 };
+use atomic_float::AtomicF32;
 use nexus_rs::raw_structs::{
     AddonAPI, AddonDefinition, AddonVersion, EAddonFlags, ELogLevel, ERenderType, NexusLinkData,
     Texture, LPVOID,
@@ -10,14 +11,17 @@ use nexus_rs::raw_structs::{
 use once_cell::sync::Lazy;
 use rand::{seq::SliceRandom, Rng};
 use std::{
-    ffi::{c_char, c_ulong, c_void, CStr},
+    ffi::{c_ulong, c_void, CStr},
     fs::{create_dir_all, File},
     io::{BufRead, BufReader, Write},
     mem::MaybeUninit,
     ops::Neg,
     path::PathBuf,
     ptr::{self, NonNull},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        RwLock,
+    },
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -25,7 +29,7 @@ use windows::{
     core::s,
     Win32::{
         Foundation::{HINSTANCE, HMODULE},
-        System::SystemServices,
+        System::{LibraryLoader::DisableThreadLibraryCalls, SystemServices},
     },
 };
 
@@ -46,6 +50,7 @@ unsafe extern "C" fn DllMain(
 ) -> bool {
     match fdw_reason {
         SystemServices::DLL_PROCESS_ATTACH => {
+            let _ = DisableThreadLibraryCalls(hinst_dll);
             HANDLE = Some(hinst_dll.into());
         }
         _ => {}
@@ -68,14 +73,16 @@ unsafe extern "C" fn texture_callback_file(id: *const i8, text: *mut Texture) {
     DVD_ICON_FILE = Some(&*text);
 }
 
-unsafe fn load_file() {
-    if USE_FILE_IMAGE && DVD_ICON_FILE.is_none() {
-        let api = API.assume_init();
-        (api.load_texture_from_file)(
-            s!("DVD_ICON_FILE").0 as _,
-            (api.get_addon_directory)(s!("/dvd/dvd.png").0 as _),
-            texture_callback_file,
-        );
+fn load_file() {
+    if USE_FILE_IMAGE.load(Ordering::Acquire) && unsafe { DVD_ICON_FILE.is_none() } {
+        unsafe {
+            let api = API.assume_init();
+            (api.load_texture_from_file)(
+                s!("DVD_ICON_FILE").0 as _,
+                (api.get_addon_directory)(s!("dvd\\dvd.png").0 as _),
+                texture_callback_file,
+            );
+        }
     }
 }
 unsafe extern "C" fn load(a_api: *mut AddonAPI) {
@@ -124,23 +131,23 @@ unsafe extern "C" fn load(a_api: *mut AddonAPI) {
     POS_THREAD = Some(std::thread::spawn(|| calculate_pos()));
 }
 unsafe extern "C" fn unload() {
+    (API.assume_init().unregister_render)(render);
+    (API.assume_init().unregister_render)(render_options);
     UNLOAD.store(true, Ordering::SeqCst);
     store_settings();
     if let Some(h) = POS_THREAD.take() {
         let _ = h.join();
     }
-    (API.assume_init().unregister_render)(render);
-    (API.assume_init().unregister_render)(render_options);
 }
 
-static mut SPEED_VAL: f32 = 2f32;
-static mut DVD_COUNT: u32 = 1;
-static mut USE_FILE_IMAGE: bool = false;
-static mut SHOW_DURING_GAMEPLAY: bool = false;
+static SPEED_VAL: AtomicF32 = AtomicF32::new(2f32);
+static DVD_COUNT: AtomicU32 = AtomicU32::new(1);
+static USE_FILE_IMAGE: AtomicBool = AtomicBool::new(false);
+static SHOW_DURING_GAMEPLAY: AtomicBool = AtomicBool::new(false);
 
 unsafe fn config_path() -> PathBuf {
     let api = API.assume_init();
-    let config_path = CStr::from_ptr((api.get_addon_directory)(s!("/dvd/dvd.conf").0 as _))
+    let config_path = CStr::from_ptr((api.get_addon_directory)(s!("dvd\\dvd.conf").0 as _))
         .to_string_lossy()
         .into_owned();
     return config_path.into();
@@ -153,16 +160,24 @@ unsafe fn load_settings() {
     let f = BufReader::new(file);
     let mut it = f.lines();
     if let Some(Ok(speed)) = it.next() {
-        SPEED_VAL = speed.parse().unwrap_or(SPEED_VAL);
+        if let Ok(speed) = speed.parse() {
+            SPEED_VAL.store(speed, Ordering::Release);
+        }
     }
     if let Some(Ok(count)) = it.next() {
-        DVD_COUNT = count.parse().unwrap_or(DVD_COUNT);
+        if let Ok(count) = count.parse() {
+            DVD_COUNT.store(count, Ordering::Release);
+        }
     }
     if let Some(Ok(file_image)) = it.next() {
-        USE_FILE_IMAGE = file_image.parse().unwrap_or(USE_FILE_IMAGE);
+        if let Ok(file_image) = file_image.parse() {
+            USE_FILE_IMAGE.store(file_image, Ordering::Release);
+        }
     }
-    if let Some(Ok(file_image)) = it.next() {
-        SHOW_DURING_GAMEPLAY = file_image.parse().unwrap_or(SHOW_DURING_GAMEPLAY);
+    if let Some(Ok(show_during_gameplay)) = it.next() {
+        if let Ok(show_during_gameplay) = show_during_gameplay.parse() {
+            SHOW_DURING_GAMEPLAY.store(show_during_gameplay, Ordering::Release);
+        }
     }
 }
 unsafe fn store_settings() {
@@ -172,24 +187,46 @@ unsafe fn store_settings() {
     let Ok(mut file) = File::create(config_path()) else {
         return;
     };
-    let mut config = format!("{SPEED_VAL}\n{DVD_COUNT}\n{USE_FILE_IMAGE}\n{SHOW_DURING_GAMEPLAY}");
+    let mut config = format!(
+        "{}\n{}\n{}\n{}",
+        SPEED_VAL.load(Ordering::Acquire),
+        DVD_COUNT.load(Ordering::Acquire),
+        USE_FILE_IMAGE.load(Ordering::Acquire),
+        SHOW_DURING_GAMEPLAY.load(Ordering::Acquire)
+    );
     file.write_all(config.as_bytes_mut()).ok();
 }
 
-pub unsafe extern "C" fn render_options() {
-    let ui = UI.assume_init_ref();
+pub extern "C" fn render_options() {
+    let ui = unsafe { UI.assume_init_ref() };
 
     ui.separator();
-    Slider::new("DVD Speed", 1f32, 50f32).build(&ui, &mut SPEED_VAL);
-    Slider::new("DVD Count", 1u32, 50).build(&ui, &mut DVD_COUNT);
-    if ui.checkbox("Use image file (addons/dvd/dvd.png)", &mut USE_FILE_IMAGE) {
-        if USE_FILE_IMAGE {
-            load_file();
+    let _ = SPEED_VAL.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |mut speed| {
+        Slider::new("DVD Speed", 1f32, 50f32).build(&ui, &mut speed);
+        Some(speed)
+    });
+    let _ = DVD_COUNT.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |mut count| {
+        Slider::new("DVD Count", 1u32, 50).build(&ui, &mut count);
+        Some(count)
+    });
+    let _ = USE_FILE_IMAGE.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |mut use_image| {
+        if ui.checkbox("Use image file (addons/dvd/dvd.png)", &mut use_image) {
+            if use_image {
+                load_file();
+            }
         }
-    }
-    ui.checkbox(
-        "Show small version during gameplay",
-        &mut SHOW_DURING_GAMEPLAY,
+        Some(use_image)
+    });
+    let _ = SHOW_DURING_GAMEPLAY.fetch_update(
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+        |mut show_during_gameplay| {
+            ui.checkbox(
+                "Show small version during gameplay",
+                &mut show_during_gameplay,
+            );
+            Some(show_during_gameplay)
+        },
     );
 }
 
@@ -203,7 +240,7 @@ struct DvdState {
 
 static mut UNLOAD: AtomicBool = AtomicBool::new(false);
 
-static mut STATE: Lazy<Vec<DvdState>> = Lazy::new(|| Vec::new());
+static mut STATE: Lazy<RwLock<Vec<DvdState>>> = Lazy::new(|| RwLock::new(Vec::new()));
 unsafe fn calculate_pos() {
     static mut LAST_TS: Lazy<Instant> = Lazy::new(|| Instant::now());
     loop {
@@ -223,11 +260,11 @@ unsafe fn calculate_pos() {
         if NEXUS_DATA.is_none() {
             continue;
         }
-        if !SHOW_DURING_GAMEPLAY && NEXUS_DATA.unwrap().is_gameplay {
+        if !SHOW_DURING_GAMEPLAY.load(Ordering::Acquire) && NEXUS_DATA.unwrap().is_gameplay {
             continue;
         }
         let nexus_data = NEXUS_DATA.unwrap();
-        let dvd_icon = if USE_FILE_IMAGE {
+        let dvd_icon = if USE_FILE_IMAGE.load(Ordering::Acquire) {
             if let Some(icon) = DVD_ICON_FILE {
                 icon
             } else {
@@ -237,18 +274,21 @@ unsafe fn calculate_pos() {
         } else {
             DVD_ICON.unwrap()
         };
-        let icon_width = if nexus_data.is_gameplay && SHOW_DURING_GAMEPLAY {
+        let icon_width = if nexus_data.is_gameplay && SHOW_DURING_GAMEPLAY.load(Ordering::Acquire) {
             dvd_icon.width / 5
         } else {
             dvd_icon.width
         };
-        let icon_height = if nexus_data.is_gameplay && SHOW_DURING_GAMEPLAY {
+        let icon_height = if nexus_data.is_gameplay && SHOW_DURING_GAMEPLAY.load(Ordering::Acquire)
+        {
             dvd_icon.height / 5
         } else {
             dvd_icon.height
         };
-        while STATE.len() < DVD_COUNT as usize {
-            STATE.push(DvdState {
+        let count = DVD_COUNT.load(Ordering::Acquire) as usize;
+        let mut state = STATE.write().expect("Poisend State");
+        while state.len() < count {
+            state.push(DvdState {
                 x: rand::thread_rng().gen_range(0..(nexus_data.width - icon_width)) as _,
                 y: rand::thread_rng().gen_range(0..(nexus_data.height - icon_height)) as _,
                 direction: [[-1, -1], [-1, 1], [1, -1], [1, 1]]
@@ -258,16 +298,16 @@ unsafe fn calculate_pos() {
                 tint: randomize_color(),
             })
         }
-        STATE.truncate(DVD_COUNT as usize);
-
-        for state in STATE.iter_mut() {
+        state.truncate(count);
+        let speed = SPEED_VAL.load(Ordering::Acquire);
+        for state in state.iter_mut() {
             let x_speed = colission(
                 &mut state.x,
                 (nexus_data.width - icon_width) as f32,
                 delta,
                 &mut state.direction[0],
                 &mut state.tint,
-                unsafe { SPEED_VAL },
+                speed,
             );
             let y_speed = colission(
                 &mut state.y,
@@ -275,7 +315,7 @@ unsafe fn calculate_pos() {
                 delta,
                 &mut state.direction[1],
                 &mut state.tint,
-                unsafe { SPEED_VAL },
+                speed,
             );
             let x_speed = colission(
                 &mut state.x,
@@ -300,15 +340,16 @@ unsafe fn calculate_pos() {
     }
 }
 
-pub unsafe extern "C" fn render() {
-    if let Some(nd) = NEXUS_DATA {
-        if nd.is_gameplay && !SHOW_DURING_GAMEPLAY {
+pub extern "C" fn render() {
+    if let Some(nd) = unsafe { NEXUS_DATA } {
+        if nd.is_gameplay && !SHOW_DURING_GAMEPLAY.load(Ordering::Acquire) {
             return;
         }
     } else {
         return;
     }
-    for (i, dvd) in STATE.iter().enumerate() {
+    let state = unsafe { &STATE }.read().expect("Poisend State");
+    for (i, dvd) in state.iter().enumerate() {
         render_dvd(i as usize, dvd);
     }
 }
@@ -344,21 +385,20 @@ fn colission(
 
 fn render_dvd(index: usize, dvd: &DvdState) {
     let ui = unsafe { UI.assume_init_ref() };
-    let dvd_icon = unsafe {
-        if USE_FILE_IMAGE && DVD_ICON_FILE.is_some() {
-            DVD_ICON_FILE.unwrap()
-        } else {
-            DVD_ICON.unwrap()
-        }
+    let dvd_icon = if USE_FILE_IMAGE.load(Ordering::Acquire) && unsafe { DVD_ICON_FILE.is_some() } {
+        unsafe { DVD_ICON_FILE.unwrap() }
+    } else {
+        unsafe { DVD_ICON.unwrap() }
     };
     let nexus_data = unsafe { NEXUS_DATA.unwrap() };
 
-    let icon_width = if nexus_data.is_gameplay && unsafe { SHOW_DURING_GAMEPLAY } {
+    let show_during_gameplay = SHOW_DURING_GAMEPLAY.load(Ordering::Acquire);
+    let icon_width = if nexus_data.is_gameplay && show_during_gameplay {
         dvd_icon.width / 5
     } else {
         dvd_icon.width
     };
-    let icon_height = if nexus_data.is_gameplay && unsafe { SHOW_DURING_GAMEPLAY } {
+    let icon_height = if nexus_data.is_gameplay && show_during_gameplay {
         dvd_icon.height / 5
     } else {
         dvd_icon.height
@@ -388,15 +428,15 @@ pub extern "C" fn GetAddonDef() -> *mut AddonDefinition {
     static AD: AddonDefinition = AddonDefinition {
         signature: -69420,
         apiversion: nexus_rs::raw_structs::NEXUS_API_VERSION,
-        name: b"DVD\0".as_ptr() as *const c_char,
+        name: s!("DVD").0 as _,
         version: AddonVersion {
             major: 0,
-            minor: 6,
+            minor: 7,
             build: 0,
             revision: 0,
         },
-        author: b"belst\0".as_ptr() as *const c_char,
-        description: b"Bouncy\0".as_ptr() as *const c_char,
+        author: s!("belst").0 as _,
+        description: s!("Bouncy").0 as _,
         load,
         unload: Some(unsafe { NonNull::new_unchecked(unload as _) }),
         flags: EAddonFlags::None,
