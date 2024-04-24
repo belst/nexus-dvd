@@ -16,11 +16,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
-    - uses: actions/cache@v3
+    - uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -33,7 +33,7 @@ jobs:
       run: |
         cargo build --release
     - name: Upload Library
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.CLIENT_DLL_NAME }}.dll
         path: target\release\${{ env.CLIENT_DLL_NAME }}.dll
@@ -47,7 +47,7 @@ jobs:
 
     if: ${{ startsWith(github.event.ref, 'refs/tags/') }}
     steps:
-    - uses: actions/download-artifact@master
+    - uses: actions/download-artifact@v4
       with:
         name: ${{ env.CLIENT_DLL_NAME }}.dll
         path: .
