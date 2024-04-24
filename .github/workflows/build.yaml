@@ -17,6 +17,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+      toolchain: stable
     - uses: actions/cache@v3
       with:
         path: |
@@ -26,9 +29,6 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: stable
     - name: Build Step
       run: |
         cargo build --release

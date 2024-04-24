@@ -1,7 +1,7 @@
 [package]
 name = "nexus-dvd"
-description = "DVD Icon addon for GW2 Nexus"
-version = "0.8.0"
+description = "DVD Icon (Bouncy)"
+version = "0.9.0"
 edition = "2021"
 build = "build.rs"
 
@@ -16,22 +16,23 @@ LegalCopyright = "Copyright © 2023-2024"
 
 
 [dependencies]
-arcdps-imgui = "0.8.0"
-atomic_float = "0.1.0"
+log = "0.4.21"
 once_cell = "1.18.0"
 rand = { version = "0.8.5", features = ["min_const_gen"] }
 
 [dependencies.windows]
-version = "0.52.0"
+version = "*"
 features = [
     "Win32_System_LibraryLoader",
     "Win32_Foundation",
-    "Win32_System_SystemServices"
+    "Win32_System_SystemServices",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
 ]
 
-[dependencies.nexus-rs]
-git = "https://github.com/belst/raidcore_bindings-rs"
-rev = "423e14136e2adec56ba392e2db4e0e61f8507de5"
+[dependencies.nexus]
+git = "https://github.com/Zerthox/nexus-rs"
+features = ["log"]
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1.11"
