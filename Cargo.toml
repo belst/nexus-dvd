@@ -1,18 +1,15 @@
 [package]
 name = "nexus-dvd"
 description = "DVD Icon (Bouncy)"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
-build = "build.rs"
+authors = ["belst"]
 
 [lib]
 crate-type = ["cdylib"]
 name = "dvd"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[package.metadata.winres]
-LegalCopyright = "Copyright © 2023-2024"
 
 
 [dependencies]
@@ -34,5 +31,3 @@ features = [
 git = "https://github.com/Zerthox/nexus-rs"
 features = ["log"]
 
-[target.'cfg(windows)'.build-dependencies]
-winres = "0.1.11"

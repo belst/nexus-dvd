@@ -5,39 +5,17 @@ use nexus::{
     render, UpdateProvider,
 };
 use settings::Settings;
-use std::{ffi::c_ulong, os::raw::c_void, path::PathBuf};
-use windows::Win32::{
-    Foundation::{HINSTANCE, HMODULE},
-    System::{LibraryLoader::DisableThreadLibraryCalls, SystemServices},
-};
+use std::path::PathBuf;
 
 mod dvd;
 mod settings;
-
-static mut HANDLE: Option<HMODULE> = None;
-
-type LPVOID = *const c_void;
-
-// Required to load from resource, also see build.rs
-#[no_mangle]
-unsafe extern "C-unwind" fn DllMain(
-    hinst_dll: HINSTANCE,
-    fdw_reason: c_ulong,
-    _lpv_reserveded: LPVOID,
-) -> bool {
-    if fdw_reason == SystemServices::DLL_PROCESS_ATTACH {
-        let _ = DisableThreadLibraryCalls(hinst_dll);
-        HANDLE = Some(hinst_dll.into());
-    }
-    true
-}
 
 fn load() {
     if let Err(e) = Settings::load(config_path()) {
         log::warn!("Could not load settings: {e}");
     }
     dvd::load_file();
-    dvd::load_from_resource();
+    dvd::load();
     register_render(RenderType::Render, render!(render_fn)).revert_on_unload();
     register_render(RenderType::OptionsRender, render!(render_options)).revert_on_unload();
 
